@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:video_player/video_player.dart';
 import '../theme/app_theme.dart';
 import '../widgets/panda_logo.dart';
 import 'quote_screen.dart';
@@ -14,9 +12,9 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen>
-    with TickerProviderStateMixin {
-  late VideoPlayerController _videoController;
-  bool _isVideoInitialized = false;
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animationController;
+  late Animation<double> _fadeInAnimation;
   bool _hasNavigated = false;
 
   @override
@@ -33,57 +31,25 @@ class _SplashScreenState extends State<SplashScreen>
       ),
     );
 
-    _initializeVideo();
-  }
+    // Setup animations
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
 
-  Future<void> _initializeVideo() async {
-    try {
-      // For web, use the video path directly
-      // For mobile, use the asset path
-      final videoPath = kIsWeb
-          ? 'assets/videos/panda_logo.mp4'
-          : 'assets/videos/panda_logo.mp4';
+    _fadeInAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeIn),
+    );
 
-      _videoController = VideoPlayerController.asset(
-        videoPath,
-        videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
-      );
+    // Start animations
+    _animationController.forward();
 
-      await _videoController.initialize();
-      setState(() {
-        _isVideoInitialized = true;
-      });
-
-      // Play video
-      _videoController.play();
-
-      // Listen for video completion
-      _videoController.addListener(_videoListener);
-    } catch (e) {
-      debugPrint('Error initializing video: $e');
-      // If video fails, navigate after delay
-      _scheduleNavigation();
-    }
-
-    // Always schedule a fallback navigation in case video doesn't complete
-    _scheduleNavigation();
-  }
-
-  void _scheduleNavigation() {
-    Future.delayed(const Duration(milliseconds: 2500), () {
+    // Navigate after delay
+    Future.delayed(const Duration(milliseconds: 2200), () {
       if (mounted && !_hasNavigated) {
         _navigateToQuoteScreen();
       }
     });
-  }
-
-  void _videoListener() {
-    if (_videoController.value.isInitialized &&
-        _videoController.value.position >= _videoController.value.duration &&
-        !_hasNavigated) {
-      _hasNavigated = true;
-      _navigateToQuoteScreen();
-    }
   }
 
   void _navigateToQuoteScreen() {
@@ -107,8 +73,7 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   void dispose() {
-    _videoController.removeListener(_videoListener);
-    _videoController.dispose();
+    _animationController.dispose();
     super.dispose();
   }
 
@@ -117,60 +82,51 @@ class _SplashScreenState extends State<SplashScreen>
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Center(
-        child: _isVideoInitialized
-            ? SizedBox.expand(
-                child: FittedBox(
-                  fit: BoxFit.contain,
-                  child: SizedBox(
-                    width: _videoController.value.size.width,
-                    height: _videoController.value.size.height,
-                    child: VideoPlayer(_videoController),
+        child: FadeTransition(
+          opacity: _fadeInAnimation,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const PandaLogo(size: 120),
+              const SizedBox(height: 32),
+              FadeTransition(
+                opacity: _fadeInAnimation,
+                child: RichText(
+                  text: const TextSpan(
+                    text: 'slow',
+                    style: TextStyle(
+                      fontFamily: 'Georgia',
+                      fontSize: 36,
+                      color: AppColors.textPrimary,
+                    ),
+                    children: [
+                      TextSpan(
+                        text: 'panda',
+                        style: TextStyle(
+                          fontFamily: 'Georgia',
+                          fontSize: 36,
+                          color: AppColors.accentGold,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              )
-            : _isVideoInitialized == false
-                ? // Show logo as placeholder while video loads
-                _buildFallbackSplash()
-                : const SizedBox(),
-      ),
-    );
-  }
-
-  Widget _buildFallbackSplash() {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        const PandaLogo(size: 120),
-        const SizedBox(height: 32),
-        RichText(
-          text: const TextSpan(
-            text: 'slow',
-            style: TextStyle(
-              fontFamily: 'Georgia',
-              fontSize: 36,
-              color: AppColors.textPrimary,
-            ),
-            children: [
-              TextSpan(
-                text: 'panda',
-                style: TextStyle(
-                  fontFamily: 'Georgia',
-                  fontSize: 36,
-                  color: AppColors.accentGold,
-                  fontStyle: FontStyle.italic,
+              ),
+              const SizedBox(height: 12),
+              FadeTransition(
+                opacity: _fadeInAnimation,
+                child: Text(
+                  'words worth pausing for',
+                  style: AppTextStyles.uiLabel.copyWith(
+                    color: const Color(0xFF444444),
+                  ),
                 ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 12),
-        Text(
-          'words worth pausing for',
-          style: AppTextStyles.uiLabel.copyWith(
-            color: const Color(0xFF444444),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
