@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:video_player/video_player.dart';
 import '../theme/app_theme.dart';
 import '../widgets/panda_logo.dart';
 import 'quote_screen.dart';
@@ -13,13 +15,9 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with TickerProviderStateMixin {
-  late AnimationController _logoController;
-  late AnimationController _textController;
-  late AnimationController _taglineController;
-
-  late Animation<double> _logoAnimation;
-  late Animation<double> _textAnimation;
-  late Animation<double> _taglineAnimation;
+  late VideoPlayerController _videoController;
+  bool _isVideoInitialized = false;
+  bool _hasNavigated = false;
 
   @override
   void initState() {
@@ -35,84 +33,75 @@ class _SplashScreenState extends State<SplashScreen>
       ),
     );
 
-    // Logo animation controller
-    _logoController = AnimationController(
-      duration: const Duration(milliseconds: 600),
-      vsync: this,
-    );
-
-    // Text animation controller
-    _textController = AnimationController(
-      duration: const Duration(milliseconds: 300),
-      vsync: this,
-    );
-
-    // Tagline animation controller
-    _taglineController = AnimationController(
-      duration: const Duration(milliseconds: 300),
-      vsync: this,
-    );
-
-    // Create animations
-    _logoAnimation = CurvedAnimation(
-      parent: _logoController,
-      curve: Curves.easeOut,
-    );
-
-    _textAnimation = CurvedAnimation(
-      parent: _textController,
-      curve: Curves.easeOut,
-    );
-
-    _taglineAnimation = CurvedAnimation(
-      parent: _taglineController,
-      curve: Curves.easeOut,
-    );
-
-    // Start animation sequence
-    _startAnimationSequence();
+    _initializeVideo();
   }
 
-  void _startAnimationSequence() async {
-    // Fade in logo
-    await _logoController.forward();
+  Future<void> _initializeVideo() async {
+    try {
+      // For web, use the video path directly
+      // For mobile, use the asset path
+      final videoPath = kIsWeb
+          ? 'assets/videos/panda_logo.mp4'
+          : 'assets/videos/panda_logo.mp4';
 
-    // Fade in wordmark
-    await Future.delayed(const Duration(milliseconds: 100));
-    if (mounted) {
-      await _textController.forward();
-    }
-
-    // Fade in tagline
-    await Future.delayed(const Duration(milliseconds: 50));
-    if (mounted) {
-      await _taglineController.forward();
-    }
-
-    // Navigate to quote screen
-    await Future.delayed(const Duration(milliseconds: 1150));
-    if (mounted) {
-      Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) =>
-              const QuoteScreen(),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return FadeTransition(
-              opacity: animation,
-              child: child,
-            );
-          },
-          transitionDuration: const Duration(milliseconds: 380),
-        ),
+      _videoController = VideoPlayerController.asset(
+        videoPath,
+        videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
       );
+
+      await _videoController.initialize();
+      setState(() {
+        _isVideoInitialized = true;
+      });
+
+      // Play video
+      _videoController.play();
+
+      // Listen for video completion
+      _videoController.addListener(_videoListener);
+    } catch (e) {
+      debugPrint('Error initializing video: $e');
+      // If video fails, navigate after delay
+      Future.delayed(const Duration(milliseconds: 2200), () {
+        if (mounted && !_hasNavigated) {
+          _navigateToQuoteScreen();
+        }
+      });
     }
+  }
+
+  void _videoListener() {
+    if (_videoController.value.isInitialized &&
+        _videoController.value.position >= _videoController.value.duration &&
+        !_hasNavigated) {
+      _hasNavigated = true;
+      _navigateToQuoteScreen();
+    }
+  }
+
+  void _navigateToQuoteScreen() {
+    if (!mounted || _hasNavigated) return;
+    _hasNavigated = true;
+
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            const QuoteScreen(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(
+            opacity: animation,
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 380),
+      ),
+    );
   }
 
   @override
   void dispose() {
-    _logoController.dispose();
-    _textController.dispose();
-    _taglineController.dispose();
+    _videoController.removeListener(_videoListener);
+    _videoController.dispose();
     super.dispose();
   }
 
@@ -121,73 +110,60 @@ class _SplashScreenState extends State<SplashScreen>
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // Panda Logo
-            FadeTransition(
-              opacity: _logoAnimation,
-              child: ScaleTransition(
-                scale: _logoAnimation,
-                child: const PandaLogo(size: 120),
-              ),
-            ),
-
-            const SizedBox(height: 32),
-
-            // Wordmark
-            FadeTransition(
-              opacity: _textAnimation,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0, 0.3),
-                  end: Offset.zero,
-                ).animate(_textAnimation),
-                child: RichText(
-                  text: TextSpan(
-                    text: 'slow',
-                    style: const TextStyle(
-                      fontFamily: 'Georgia',
-                      fontSize: 36,
-                      color: AppColors.textPrimary,
-                    ),
-                    children: [
-                      TextSpan(
-                        text: 'panda',
-                        style: TextStyle(
-                          fontFamily: 'Georgia',
-                          fontSize: 36,
-                          color: AppColors.accentGold,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ],
+        child: _isVideoInitialized
+            ? SizedBox.expand(
+                child: FittedBox(
+                  fit: BoxFit.contain,
+                  child: SizedBox(
+                    width: _videoController.value.size.width,
+                    height: _videoController.value.size.height,
+                    child: VideoPlayer(_videoController),
                   ),
                 ),
-              ),
-            ),
-
-            const SizedBox(height: 12),
-
-            // Tagline
-            FadeTransition(
-              opacity: _taglineAnimation,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0, 0.3),
-                  end: Offset.zero,
-                ).animate(_taglineAnimation),
-                child: Text(
-                  'words worth pausing for',
-                  style: AppTextStyles.uiLabel.copyWith(
-                    color: const Color(0xFF444444),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
+              )
+            : _isVideoInitialized == false
+                ? // Show logo as placeholder while video loads
+                _buildFallbackSplash()
+                : const SizedBox(),
       ),
+    );
+  }
+
+  Widget _buildFallbackSplash() {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const PandaLogo(size: 120),
+        const SizedBox(height: 32),
+        RichText(
+          text: const TextSpan(
+            text: 'slow',
+            style: TextStyle(
+              fontFamily: 'Georgia',
+              fontSize: 36,
+              color: AppColors.textPrimary,
+            ),
+            children: [
+              TextSpan(
+                text: 'panda',
+                style: TextStyle(
+                  fontFamily: 'Georgia',
+                  fontSize: 36,
+                  color: AppColors.accentGold,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'words worth pausing for',
+          style: AppTextStyles.uiLabel.copyWith(
+            color: const Color(0xFF444444),
+          ),
+        ),
+      ],
     );
   }
 }

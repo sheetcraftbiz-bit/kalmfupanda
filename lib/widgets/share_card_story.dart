@@ -4,7 +4,7 @@ import '../theme/app_theme.dart';
 
 class ShareCardStory extends StatelessWidget {
   final Quote quote;
-  final bool isInstagram; // true for IG, false for FB
+  final bool isInstagram;
 
   const ShareCardStory({
     super.key,
@@ -18,7 +18,6 @@ class ShareCardStory extends StatelessWidget {
         ? AppColors.igStoryGradient
         : AppColors.fbStoryGradient;
 
-    // Generate stops based on number of colors
     final stops = List.generate(
       gradientColors.length,
       (index) => index / (gradientColors.length - 1),
@@ -70,7 +69,7 @@ class ShareCardStory extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Large quote mark (smaller)
+                // Quote mark
                 Text(
                   '"',
                   style: TextStyle(
@@ -84,23 +83,10 @@ class ShareCardStory extends StatelessWidget {
 
                 const SizedBox(height: 8),
 
-                // Quote text - wrapped to allow multiple lines
-                Flexible(
-                  child: Text(
-                    '"${quote.text}"',
-                    style: const TextStyle(
-                      fontFamily: 'Georgia',
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      fontStyle: FontStyle.italic,
-                      color: Colors.white,
-                      height: 1.3,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
+                // Quote text - adjust font size based on length
+                _buildQuoteText(),
 
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
 
                 // Divider
                 Container(
@@ -116,7 +102,7 @@ class ShareCardStory extends StatelessWidget {
                   '— ${quote.author.toUpperCase()}',
                   style: TextStyle(
                     fontFamily: 'Courier New',
-                    fontSize: 11,
+                    fontSize: 16,  // Increased from 11
                     letterSpacing: 2.0,
                     color: Colors.white.withOpacity(0.8),
                   ),
@@ -125,46 +111,51 @@ class ShareCardStory extends StatelessWidget {
 
                 const SizedBox(height: 36),
 
-                // Watermark and credits at bottom
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'KALMFU PANDA',
-                      style: TextStyle(
-                        fontFamily: 'Courier New',
-                        fontSize: 9,
-                        letterSpacing: 3.0,
-                        color: Colors.white.withOpacity(0.4),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Find the way to Kalm Like Panda',
-                      style: TextStyle(
-                        fontFamily: 'Courier New',
-                        fontSize: 7,
-                        letterSpacing: 1.5,
-                        color: Colors.white.withOpacity(0.3),
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    Text(
-                      'Available on App Store',
-                      style: TextStyle(
-                        fontFamily: 'Courier New',
-                        fontSize: 7,
-                        letterSpacing: 1.5,
-                        color: Colors.white.withOpacity(0.3),
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
+                // Watermark
+                Text(
+                  'KALMFU PANDA',
+                  style: TextStyle(
+                    fontFamily: 'Courier New',
+                    fontSize: 13,  // Increased from 9
+                    letterSpacing: 3.0,
+                    color: Colors.white.withOpacity(0.4),
+                  ),
                 ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildQuoteText() {
+    // Calculate font size based on quote length
+    // Increased for better readability at 1080x1920 output
+    final wordCount = quote.text.split(' ').length;
+    final lineCount = (quote.text.length / 35).ceil();
+
+    double fontSize = 26;  // Increased from 18
+    if (lineCount >= 3 || wordCount >= 15) {
+      fontSize = 22;  // Increased from 16
+    } else if (lineCount >= 4 || wordCount >= 20) {
+      fontSize = 20;  // Increased from 14
+    }
+
+    return Flexible(
+      child: Text(
+        '"${quote.text}"',
+        style: TextStyle(
+          fontFamily: 'Georgia',
+          fontSize: fontSize,
+          fontWeight: FontWeight.w700,
+          fontStyle: FontStyle.italic,
+          color: Colors.white,
+          height: 1.3,
+        ),
+        textAlign: TextAlign.center,
+        maxLines: 6,
+        overflow: TextOverflow.ellipsis,
       ),
     );
   }

@@ -1,18 +1,18 @@
-import 'dart:io';
-import 'dart:ui' as ui;
+import 'dart:io' show File;
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter_svg/flutter_svg.dart';
+import 'package:screenshot/screenshot.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:image_gallery_saver/image_gallery_saver.dart';
 import '../models/quote_model.dart';
 import '../widgets/share_card_story.dart';
 import '../widgets/share_card_apple_notes.dart';
 import '../widgets/share_card_twitter.dart';
 import '../theme/app_theme.dart';
-import '../config/app_config.dart';
+import 'web_download.dart' if (dart.library.io) 'web_download_stub.dart';
+import '../services/card_generator_service.dart';
 
 enum ShareCardType { colorful, appleNotes, twitter }
 
@@ -39,13 +39,53 @@ class ShareScreen extends StatefulWidget {
   State<ShareScreen> createState() => _ShareScreenState();
 }
 
-class _ShareScreenState extends State<ShareScreen> {
+class _ShareScreenState extends State<ShareScreen>
+    with TickerProviderStateMixin {
   ShareCardType _selectedCard = ShareCardType.colorful;
   late PageController _pageController;
+  bool _isSaving = false;
+
+  // For mobile: Screenshot controllers
+  final ScreenshotController _controller0 = ScreenshotController();
+  final ScreenshotController _controller1 = ScreenshotController();
+  final ScreenshotController _controller2 = ScreenshotController();
+
+  // For web: GlobalKeys for RepaintBoundary
+  final GlobalKey _captureKey0 = GlobalKey(debugLabel: 'capture_0');
+  final GlobalKey _captureKey1 = GlobalKey(debugLabel: 'capture_1');
+  final GlobalKey _captureKey2 = GlobalKey(debugLabel: 'capture_2');
 
   final List<ShareCardType> _cardTypes = ShareCardType.values;
 
   int get _currentIndex => _cardTypes.indexOf(_selectedCard);
+
+  // Get the controller for the currently selected card (mobile)
+  ScreenshotController get _currentController {
+    switch (_currentIndex) {
+      case 0:
+        return _controller0;
+      case 1:
+        return _controller1;
+      case 2:
+        return _controller2;
+      default:
+        return _controller0;
+    }
+  }
+
+  // Get the GlobalKey for the currently selected card (web)
+  GlobalKey get _currentKey {
+    switch (_currentIndex) {
+      case 0:
+        return _captureKey0;
+      case 1:
+        return _captureKey1;
+      case 2:
+        return _captureKey2;
+      default:
+        return _captureKey0;
+    }
+  }
 
   @override
   void initState() {
@@ -62,7 +102,7 @@ class _ShareScreenState extends State<ShareScreen> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: MediaQuery.of(context).size.height * 0.75,
+      height: MediaQuery.of(context).size.height * 0.85,
       decoration: const BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -91,7 +131,7 @@ class _ShareScreenState extends State<ShareScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'SHARE',
+                      'SHARE CARD',
                       style: AppTextStyles.uiLabelAccent.copyWith(
                         color: AppColors.textPrimary,
                         fontSize: 11,
@@ -100,7 +140,7 @@ class _ShareScreenState extends State<ShareScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Swipe to preview styles',
+                      'Swipe to change style',
                       style: AppTextStyles.uiLabel.copyWith(
                         color: AppColors.textSecondary,
                       ),
@@ -127,7 +167,7 @@ class _ShareScreenState extends State<ShareScreen> {
             ),
           ),
 
-          // Card preview with PageView for swipe
+          // Card preview - PageView for swiping
           Expanded(
             child: PageView.builder(
               controller: _pageController,
@@ -138,12 +178,30 @@ class _ShareScreenState extends State<ShareScreen> {
               },
               itemCount: _cardTypes.length,
               itemBuilder: (context, index) {
+                // Get the correct controller/key for this card
+                final controller = index == 0
+                    ? _controller0
+                    : index == 1
+                        ? _controller1
+                        : _controller2;
+                final key = index == 0
+                    ? _captureKey0
+                    : index == 1
+                        ? _captureKey1
+                        : _captureKey2;
+
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: RepaintBoundary(
-                    key: ValueKey('card_$index'),
-                    child: _buildCard(_cardTypes[index]),
-                  ),
+                  // Web: Use RepaintBoundary, Mobile: Use Screenshot
+                  child: kIsWeb
+                      ? RepaintBoundary(
+                          key: key,
+                          child: _buildCard(_cardTypes[index]),
+                        )
+                      : Screenshot(
+                          controller: controller,
+                          child: _buildCard(_cardTypes[index]),
+                        ),
                 );
               },
             ),
@@ -151,7 +209,7 @@ class _ShareScreenState extends State<ShareScreen> {
 
           // Dot indicators
           Padding(
-            padding: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.only(bottom: 16, top: 8),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: List.generate(
@@ -172,52 +230,41 @@ class _ShareScreenState extends State<ShareScreen> {
             ),
           ),
 
-          // Share section label
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.share_rounded,
-                  size: 16,
-                  color: AppColors.textSecondary.withOpacity(0.6),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  'SHARE TO',
-                  style: AppTextStyles.uiLabel.copyWith(
-                    color: AppColors.textSecondary.withOpacity(0.6),
-                    fontSize: 10,
-                    letterSpacing: 1.5,
+          // Loading indicator
+          if (_isSaving)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        AppColors.accentGold,
+                      ),
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(width: 8),
+                  Text(
+                    'Saving...',
+                    style: AppTextStyles.uiLabel.copyWith(
+                      color: AppColors.textSecondary,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
 
-          // Share buttons - logos centered together, no background
+          // Action buttons - Direct Save and Share
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _buildShareButton(
-                  iconPath: 'assets/images/fb_logo.svg',
-                  onTap: () => _shareToFacebook(),
-                ),
-                const SizedBox(width: 20),
-                _buildShareButton(
-                  iconPath: 'assets/images/ig_logo.svg',
-                  onTap: () => _shareToInstagram(),
-                ),
-                const SizedBox(width: 20),
-                _buildShareButton(
-                  iconPath: 'assets/images/x_logo.svg',
-                  onTap: () => _shareToTwitter(),
-                ),
-              ],
-            ),
+            child: kIsWeb
+                ? _buildWebActionButton()
+                : _buildMobileActionButtons(),
           ),
 
           const SizedBox(height: 24),
@@ -237,96 +284,326 @@ class _ShareScreenState extends State<ShareScreen> {
     }
   }
 
-  Widget _buildShareButton({
-    required String iconPath,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: SvgPicture.asset(
-        iconPath,
-        width: 40,
-        height: 40,
+  // Web: Single download button
+  Widget _buildWebActionButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 52,
+      child: ElevatedButton(
+        onPressed: _isSaving ? null : () => _downloadCard(),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.accentGold,
+          foregroundColor: AppColors.background,
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        child: _isSaving
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.background),
+                ),
+              )
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.download_rounded,
+                    size: 20,
+                    color: AppColors.background,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'DOWNLOAD CARD',
+                    style: AppTextStyles.uiLabelAccent.copyWith(
+                      color: AppColors.background,
+                      fontSize: 12,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                ],
+              ),
       ),
     );
   }
 
-  Future<void> _shareToFacebook() async {
-    final image = await _captureImage();
-    if (image != null) {
-      await Share.shareXFiles(
-        [XFile(image)],
-        text: '"${widget.quote.text}" — ${widget.quote.author}\n\n${AppConfig.shareCredit} - ${AppConfig.appStoreLink}',
-      );
-    }
+  // Mobile: Save to Photos + Share buttons
+  Widget _buildMobileActionButtons() {
+    return Row(
+      children: [
+        // Direct Save button
+        Expanded(
+          child: SizedBox(
+            height: 52,
+            child: ElevatedButton(
+              onPressed: _isSaving ? null : () => _saveDirectlyToPhotos(),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.accentGold,
+                foregroundColor: AppColors.background,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: _isSaving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(AppColors.background),
+                      ),
+                    )
+                  : Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.photo_library_rounded,
+                          size: 20,
+                          color: AppColors.background,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'SAVE TO PHOTOS',
+                          style: AppTextStyles.uiLabelAccent.copyWith(
+                            color: AppColors.background,
+                            fontSize: 12,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        // Share button
+        SizedBox(
+          width: 80,
+          height: 52,
+          child: ElevatedButton(
+            onPressed: _isSaving ? null : () => _downloadCard(),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.background,
+              foregroundColor: AppColors.accentGold,
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: AppColors.border, width: 1),
+              ),
+            ),
+            child: const Icon(
+              Icons.ios_share,
+              size: 22,
+              color: AppColors.accentGold,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
-  Future<void> _shareToInstagram() async {
-    final image = await _captureImage();
-    if (image != null) {
-      await Share.shareXFiles(
-        [XFile(image)],
-        text: '"${widget.quote.text}" — ${widget.quote.author}\n\n${AppConfig.shareCredit} - ${AppConfig.appStoreLink}',
-      );
-    }
-  }
+  // Download card
+  Future<void> _downloadCard() async {
+    setState(() => _isSaving = true);
 
-  Future<void> _shareToTwitter() async {
-    final tweetText = '"${widget.quote.text}" — ${widget.quote.author}\n\n${AppConfig.shareCredit}\n${AppConfig.appStoreLink}: ${AppConfig.appStoreUrl}';
-    final encodedTweet = Uri.encodeComponent(tweetText);
-    final twitterUrl = '${AppConfig.twitterIntent}?text=$encodedTweet';
-
-    if (await canLaunchUrl(Uri.parse(twitterUrl))) {
-      await launchUrl(
-        Uri.parse(twitterUrl),
-        mode: LaunchMode.externalApplication,
-      );
-    } else {
-      final image = await _captureImage();
-      if (image != null) {
-        await Share.shareXFiles(
-          [XFile(image)],
-          text: tweetText,
-        );
-      }
-    }
-  }
-
-  Future<String?> _captureImage() async {
     try {
-      // Find the RepaintBoundary for the current card
-      final context = _findCardContext();
-      if (context == null) return null;
+      if (kIsWeb) {
+        // Web: Use Canvas-based generator (works reliably)
+        await Future.delayed(const Duration(milliseconds: 100));
+        CardGenerator.generateAndDownload(
+          widget.quote,
+          _selectedCard.name,
+        );
+        await Future.delayed(const Duration(milliseconds: 500));
+        _showSuccessMinimal();
+      } else {
+        // Mobile: Use Screenshot package
+        await Future.delayed(const Duration(milliseconds: 200));
+        final capturedImage = await _captureMobile();
 
-      final RenderRepaintBoundary boundary =
-          context.findRenderObject() as RenderRepaintBoundary;
-      final image = await boundary.toImage(pixelRatio: 3.0);
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      final pngBytes = byteData!.buffer.asUint8List();
+        if (capturedImage == null) {
+          _showError('Failed to capture image');
+          return;
+        }
 
-      // Save to temp file
-      final tempDir = await getTemporaryDirectory();
-      final file = File('${tempDir.path}/kalmfupanda_share.png');
-      await file.writeAsBytes(pngBytes);
-      return file.path;
+        await _saveAndShareMobile(capturedImage);
+      }
     } catch (e) {
+      debugPrint('Error in downloadCard: $e');
+      _showError('Failed to save: ${e.toString()}');
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  // Save directly to Photos (mobile only)
+  Future<void> _saveDirectlyToPhotos() async {
+    setState(() => _isSaving = true);
+
+    try {
+      await Future.delayed(const Duration(milliseconds: 200));
+
+      if (kIsWeb) {
+        _showError('Save to Photos not available on web');
+        return;
+      }
+
+      final capturedImage = await _captureMobile();
+      if (capturedImage == null) {
+        _showError('Failed to capture image');
+        return;
+      }
+
+      // Save directly to gallery
+      final result = await ImageGallerySaver.saveImage(
+        capturedImage,
+        quality: 100,
+        name: 'kalmfupanda_${DateTime.now().millisecondsSinceEpoch}',
+      );
+
+      debugPrint('Save result: $result');
+
+      if (result != null && result['isSuccess'] == true) {
+        _showSuccessMinimal();
+      } else {
+        _showError('Failed to save to Photos');
+      }
+    } catch (e) {
+      debugPrint('Error in saveDirectlyToPhotos: $e');
+      _showError('Failed to save: ${e.toString()}');
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  // Capture on mobile using Screenshot package
+  Future<Uint8List?> _captureMobile() async {
+    if (kIsWeb) return null;
+
+    try {
+      return await _currentController.capture(
+        pixelRatio: 3.0,
+        delay: const Duration(milliseconds: 100),
+      );
+    } catch (e) {
+      debugPrint('Error capturing mobile: $e');
       return null;
     }
   }
 
-  BuildContext? _findCardContext() {
-    switch (_selectedCard) {
-      case ShareCardType.colorful:
-        return _colorfulKey.currentContext;
-      case ShareCardType.appleNotes:
-        return _appleNotesKey.currentContext;
-      case ShareCardType.twitter:
-        return _twitterKey.currentContext;
+  // Download image on web
+  Future<void> _downloadImageWeb(Uint8List imageBytes) async {
+    if (!kIsWeb) return;
+
+    final filename = 'slowpanda_${DateTime.now().millisecondsSinceEpoch}.png';
+    WebDownload.downloadImage(imageBytes, filename);
+  }
+
+  // Save and share on mobile
+  Future<void> _saveAndShareMobile(Uint8List imageBytes) async {
+    if (kIsWeb) return;
+
+    try {
+      // Save to temp file
+      final tempDir = await getTemporaryDirectory();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final file = File('${tempDir.path}/kalmfupanda_$timestamp.png');
+      await file.writeAsBytes(imageBytes);
+
+      // Show native share sheet
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        subject: 'KalmFu Panda Quote',
+        text: '"${widget.quote.text}" — ${widget.quote.author}',
+      );
+
+      _showSuccessMinimal();
+    } catch (e) {
+      debugPrint('Error in saveAndShareMobile: $e');
+      _showError('Failed to open share sheet');
     }
   }
 
-  // Need to add GlobalKey fields
-  final GlobalKey _colorfulKey = GlobalKey();
-  final GlobalKey _appleNotesKey = GlobalKey();
-  final GlobalKey _twitterKey = GlobalKey();
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppColors.accentRed,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _showSuccessMinimal() {
+    if (!mounted) return;
+    // Show minimal popup
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.transparent,
+      builder: (context) => _MinimalSuccessPopup(
+        onDismiss: () => Navigator.pop(context),
+      ),
+    );
+
+    // Auto-dismiss after 1.5 seconds
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
+    });
+  }
+}
+
+// Minimal success popup widget
+class _MinimalSuccessPopup extends StatelessWidget {
+  final VoidCallback onDismiss;
+
+  const _MinimalSuccessPopup({required this.onDismiss});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onDismiss,
+      child: Stack(
+        children: [
+          // Semi-transparent overlay
+          Container(color: Colors.black26),
+          // Centered checkmark
+          Center(
+            child: Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.3),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.check_rounded,
+                color: AppColors.accentGold,
+                size: 40,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
