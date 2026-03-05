@@ -13,6 +13,13 @@ workflows:
       branch_patterns:
         - pattern: main
           include: true
+    signing:
+      profiles:
+        - profile: codemagic
+          platform: ios
+          bundle_id: com.kalmfu.panda
+          autoprovision: true
+          signing_type: app_store
     scripts:
       - name: Clean build
         script: |
