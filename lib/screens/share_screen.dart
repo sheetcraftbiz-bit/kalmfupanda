@@ -462,6 +462,8 @@ class _ShareScreenState extends State<ShareScreen>
         return;
       }
 
+      debugPrint('Saving to gallery, image size: ${capturedImage.length} bytes');
+
       // Save directly to gallery
       final result = await ImageGallerySaver.saveImage(
         capturedImage,
@@ -471,13 +473,23 @@ class _ShareScreenState extends State<ShareScreen>
 
       debugPrint('Save result: $result');
 
-      if (result != null && result['isSuccess'] == true) {
-        _showSuccessMinimal();
+      if (result != null) {
+        // Check both possible success indicators
+        final bool isSuccess = result['isSuccess'] == true ||
+                              result['saved'] == true ||
+                              result is String; // On some platforms it returns the file path
+
+        if (isSuccess) {
+          _showSuccessMinimal();
+        } else {
+          _showError('Save failed: ${result.toString()}');
+        }
       } else {
         _showError('Failed to save to Photos');
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       debugPrint('Error in saveDirectlyToPhotos: $e');
+      debugPrint('StackTrace: $stackTrace');
       _showError('Failed to save: ${e.toString()}');
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -512,23 +524,41 @@ class _ShareScreenState extends State<ShareScreen>
     if (kIsWeb) return;
 
     try {
-      // Save to temp file
-      final tempDir = await getTemporaryDirectory();
+      // Use application documents directory (more reliable in TestFlight)
+      final tempDir = await getApplicationDocumentsDirectory();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final file = File('${tempDir.path}/kalmfupanda_$timestamp.png');
+      final filename = 'kalmfupanda_$timestamp.png';
+      final file = File('${tempDir.path}/$filename');
       await file.writeAsBytes(imageBytes);
 
-      // Show native share sheet
-      await Share.shareXFiles(
+      debugPrint('Sharing file: ${file.path}');
+
+      // Show native share sheet with shareText for better compatibility
+      final result = await Share.shareXFiles(
         [XFile(file.path)],
         subject: 'KalmFu Panda Quote',
         text: '"${widget.quote.text}" — ${widget.quote.author}',
       );
 
-      _showSuccessMinimal();
-    } catch (e) {
+      // Check if share was completed
+      debugPrint('Share result: ${result.status}');
+
+      // Clean up the file after sharing
+      try {
+        if (await file.exists()) {
+          await file.delete();
+        }
+      } catch (e) {
+        debugPrint('Failed to delete temp file: $e');
+      }
+
+      if (result.status == ShareResultStatus.success) {
+        _showSuccessMinimal();
+      }
+    } catch (e, stackTrace) {
       debugPrint('Error in saveAndShareMobile: $e');
-      _showError('Failed to open share sheet');
+      debugPrint('StackTrace: $stackTrace');
+      _showError('Failed to share: ${e.toString()}');
     }
   }
 

@@ -58,5 +58,13 @@
 	<string>KalmFu Panda needs access to save quote cards to your photos.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>KalmFu Panda needs access to share quote cards.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>KalmFu Panda needs access to documents to share quote cards.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>KalmFu Panda needs permission to save quote cards to your photos.</string>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 </dict>
 </plist>
