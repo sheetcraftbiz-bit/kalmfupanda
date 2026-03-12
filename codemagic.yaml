@@ -6,8 +6,6 @@ workflows:
     name: iOS Release Build
     instance_type: mac_mini_m1
     max_build_duration: 60
-    integrations:
-      app_store_connect: codemagic
     environment:
       groups:
         - app-store-credentials
@@ -15,6 +13,10 @@ workflows:
         FLUTTER_VERSION: "3.24.0"
         XCODE_VERSION: "15.0"
         BUNDLE_ID: "com.sheetcraftbiz.kalmfupanda"
+        # App Store Connect API Key
+        APP_STORE_CONNECT_KEY_ID: $APP_STORE_CONNECT_KEY_ID
+        APP_STORE_CONNECT_ISSUER_ID: $APP_STORE_CONNECT_ISSUER_ID
+        APP_STORE_CONNECT_PRIVATE_KEY: $APP_STORE_CONNECT_PRIVATE_KEY
       xcode: 15.0
       cocoapods: default
 
@@ -110,6 +112,11 @@ workflows:
 
     publishing:
       app_store_connect:
+        # App Store Connect API Key authentication
+        key_id: $APP_STORE_CONNECT_KEY_ID
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        private_key: $APP_STORE_CONNECT_PRIVATE_KEY
+
         # Submit to TestFlight
         submit_to_testflight: true
         # Enable automatic release to external testers
