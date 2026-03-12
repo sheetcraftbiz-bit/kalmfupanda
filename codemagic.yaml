@@ -1,0 +1,137 @@
+# KalmFu Panda - Codemagic CI/CD Configuration
+# Flutter iOS build with TestFlight deployment
+
+workflows:
+  ios-workflow:
+    name: iOS Release Build
+    instance_type: mac_mini_m1
+    max_build_duration: 60
+    integrations:
+      app_store_connect: codemagic
+    environment:
+      groups:
+        - app-store-credentials
+      vars:
+        FLUTTER_VERSION: "3.24.0"
+        XCODE_VERSION: "15.0"
+        BUNDLE_ID: "com.sheetcraftbiz.kalmfupanda"
+      xcode: 15.0
+      cocoapods: default
+
+    triggering:
+      events:
+        - push
+        - pull_request
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+
+    scripts:
+      # Flutter setup
+      - name: Install Flutter
+        script: |
+          flutter install-sdk \
+          --version $FLUTTER_VERSION
+
+      - name: Flutter version
+        script: flutter --version
+
+      - name: Flutter dependencies
+        script: flutter pub get
+
+      # CocoaPods setup
+      - name: Install CocoaPods dependencies
+        script: |
+          cd ios
+          pod install
+          cd ..
+
+      # Code signing
+      - name: Set up code signing
+        script: |
+          # Import certificate
+          echo "Importing certificate..."
+          echo -n "$CM_CERTIFICATE" | base64 --decode > certificate.p12
+          keychain initialize
+          keychain set-certificates \
+            --certificate certificate.p12 \
+            --certificate-password "$CM_CERTIFICATE_PASSWORD"
+
+          # Import provisioning profile
+          echo "Importing provisioning profile..."
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo -n "$CM_PROVISIONING_PROFILE" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+
+      - name: Set up keychain and provisioning profile
+        script: |
+          keychain add-certificates \
+            --certificate certificate.p12 \
+            --certificate-password "$CM_CERTIFICATE_PASSWORD"
+
+          keychain initialize
+          keychain set-default
+
+      - name: Update bundle identifier
+        script: |
+          plutil -replace CFBundleIdentifier -string "$BUNDLE_ID" ios/Runner/Info.plist
+
+      # Build
+      - name: Build iOS release
+        script: |
+          flutter build ios \
+            --release \
+            --build-name=1.0.0 \
+            --build-number=$(($(git rev-list HEAD --count) + 1))
+
+      # Archive
+      - name: Archive and export
+        script: |
+          cd ios
+          xcodebuild archive \
+            -workspace Runner.xcworkspace \
+            -scheme Runner \
+            -archivePath build/Runner.xcarchive \
+            -sdk iphoneos \
+            -configuration Release \
+            -allowProvisioningUpdates
+
+          xcodebuild -exportArchive \
+            -archivePath build/Runner.xcarchive \
+            -exportPath build/IPA \
+            -exportOptionsPlist ExportOptions.plist
+          cd ..
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - ~/Library/Logs/gym/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
+
+    publishing:
+      app_store_connect:
+        # Submit to TestFlight
+        submit_to_testflight: true
+        # Enable automatic release to external testers
+        automatic_release: true
+        # Notify external testers
+        notify_external_testers: false
+
+        # Submission information
+        submission_information:
+          content:
+            # What's new in this release
+            whats_new: |
+              - Fixed share sheet functionality in TestFlight
+              - Improved file handling for better compatibility
+              - Enhanced error logging for debugging
+
+          # App review information
+          export_compliance_uses_encryption: false
+
+      # Slack notifications (optional - uncomment and configure)
+      # slack:
+      #   channel: "#builds"
+      #   notify_on_build_start: true
+      #   notify_on_build_success: true
+      #   notify_on_build_failure: true
